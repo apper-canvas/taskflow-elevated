@@ -13,6 +13,7 @@ function MainFeature() {
   const [viewMode, setViewMode] = useState('kanban') // 'kanban' or 'calendar'
   const [currentDate, setCurrentDate] = useState(new Date())
   const [editingTask, setEditingTask] = useState(null)
+  const [selectedDate, setSelectedDate] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
 
   // Form state
@@ -270,6 +271,7 @@ function MainFeature() {
   const TaskCalendarCell = ({ date, tasks }) => {
     const isCurrentMonth = isSameMonth(date, currentDate)
     const isTodayDate = isToday(date)
+    const isSelected = selectedDate && isSameDay(date, selectedDate)
     const dayTasks = tasks.slice(0, 3) // Show max 3 tasks per cell
     const hasMoreTasks = tasks.length > 3
 
@@ -279,13 +281,16 @@ function MainFeature() {
           isCurrentMonth 
             ? 'bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700' 
             : 'bg-surface-50 dark:bg-surface-900'
-        } ${isTodayDate ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+        } ${isTodayDate ? 'ring-2 ring-primary bg-primary/5' : ''} ${
+          isSelected ? 'ring-2 ring-secondary bg-secondary/10' : ''
+        }`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleCalendarDrop(e, date)}
+        onClick={() => tasks.length > 0 && setSelectedDate(date)}
         whileHover={{ scale: 1.02 }}
         transition={{ type: "spring", stiffness: 400, damping: 30 }}
       >
-        <div className={`text-right mb-1 ${
+        <div className={`flex items-center justify-between mb-1 ${
           isCurrentMonth 
             ? isTodayDate 
               ? 'text-primary font-bold' 
@@ -293,6 +298,11 @@ function MainFeature() {
             : 'text-surface-400 dark:text-surface-600'
         } text-xs sm:text-sm`}>
           {format(date, 'd')}
+          {tasks.length > 0 && (
+            <div className="w-5 h-5 bg-primary text-white rounded-full flex items-center justify-center text-xs font-bold">
+              {tasks.length > 9 ? '9+' : tasks.length}
+            </div>
+          )}
         </div>
         
         <div className="space-y-1">
@@ -336,6 +346,87 @@ function MainFeature() {
   }
 
   const CalendarView = () => {
+  const TaskDateView = () => {
+    const tasksForDate = getTasksForDate(selectedDate)
+    const dateString = format(selectedDate, 'EEEE, MMMM d, yyyy')
+    
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="card p-4 sm:p-6"
+      >
+        {/* Date Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <button
+              onClick={() => setSelectedDate(null)}
+              className="flex items-center gap-2 text-primary hover:text-primary-dark transition-colors mb-2"
+            >
+              <ApperIcon name="ArrowLeft" className="w-4 h-4" />
+              <span className="text-sm font-medium">Back to Calendar</span>
+            </button>
+            <h3 className="text-xl sm:text-2xl font-bold text-surface-900 dark:text-surface-100">
+              Tasks for {dateString}
+            </h3>
+            <p className="text-surface-600 dark:text-surface-400 mt-1">
+              {tasksForDate.length} {tasksForDate.length === 1 ? 'task' : 'tasks'} scheduled
+            </p>
+          </div>
+        </div>
+
+        {/* Tasks List */}
+        {tasksForDate.length > 0 ? (
+          <div className="space-y-4">
+            {/* Group tasks by status */}
+            {Object.entries(statusColumns).map(([status, config]) => {
+              const statusTasks = tasksForDate.filter(task => task.status === status)
+              
+              if (statusTasks.length === 0) return null
+              
+              return (
+                <div key={status} className="mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-6 h-6 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
+                      <ApperIcon name={config.icon} className="w-3 h-3 text-white" />
+                    </div>
+                    <h4 className="font-semibold text-surface-900 dark:text-surface-100">
+                      {config.title} ({statusTasks.length})
+                    </h4>
+                  </div>
+                  <div className="space-y-3">
+                    <AnimatePresence>
+                      {statusTasks.map(task => (
+                        <TaskCard key={task.id} task={task} />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-12"
+          >
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 dark:bg-surface-700 flex items-center justify-center">
+              <ApperIcon name="Calendar" className="w-8 h-8 text-surface-400" />
+            </div>
+            <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-2">
+              No tasks scheduled
+            </h4>
+            <p className="text-surface-500 dark:text-surface-400">
+              No tasks are scheduled for this date.
+            </p>
+          </motion.div>
+        )}
+      </motion.div>
+    )
+  }
+
     const calendarDays = generateCalendarDays()
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -506,7 +597,9 @@ function MainFeature() {
       </motion.div>
 
       {/* Main Content Area */}
-      {viewMode === 'calendar' ? (
+      {selectedDate ? (
+        <TaskDateView />
+      ) : viewMode === 'calendar' ? (
         <CalendarView />
       ) : (
         <motion.div
