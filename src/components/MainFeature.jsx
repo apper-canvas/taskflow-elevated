@@ -640,7 +640,8 @@ function MainFeature() {
         </div>
       </motion.div>
     )
-  
+  }
+
   const TaskCard = ({ task }) => (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
