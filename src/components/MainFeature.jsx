@@ -559,6 +559,7 @@ function MainFeature() {
                         <ApperIcon name="FileX" className="w-6 h-6 sm:w-8 sm:h-8 text-surface-400" />
                       </div>
                       <p className="text-surface-500 dark:text-surface-400 text-sm sm:text-base">No tasks here</p>
+                    </motion.div>
                     </div>
                   )}
                 </div>
