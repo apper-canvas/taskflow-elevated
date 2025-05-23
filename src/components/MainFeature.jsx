@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-toastify'
-import { format, isToday, isTomorrow, isPast } from 'date-fns'
+import { format, isToday, isTomorrow, isPast, startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
+         eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns'
 import ApperIcon from './ApperIcon'
 
 function MainFeature() {
@@ -9,6 +10,8 @@ function MainFeature() {
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [viewMode, setViewMode] = useState('kanban') // 'kanban' or 'calendar'
+  const [currentDate, setCurrentDate] = useState(new Date())
   const [editingTask, setEditingTask] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
 
@@ -151,6 +154,21 @@ function MainFeature() {
     return isPast(new Date(dateString)) && !isToday(new Date(dateString))
   }
 
+  const isDeadlineApproaching = (dateString, status) => {
+    if (!dateString || status === 'completed') return false
+    const date = new Date(dateString)
+    const today = new Date()
+    const diffTime = date.getTime() - today.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= 3 && diffDays >= 0
+  }
+
+  const getTasksForDate = (date) => {
+    return getFilteredTasks().filter(task => 
+      task.dueDate && isSameDay(new Date(task.dueDate), date)
+    )
+  }
+
   const handleDragStart = (task) => {
     setDraggedTask(task)
   }
@@ -164,6 +182,38 @@ function MainFeature() {
     if (draggedTask && draggedTask.status !== newStatus) {
       handleStatusChange(draggedTask.id, newStatus)
     }
+    setDraggedTask(null)
+  }
+
+  const handleCalendarDrop = (e, date) => {
+    e.preventDefault()
+    if (draggedTask && draggedTask.status !== newStatus) {
+      handleStatusChange(draggedTask.id, newStatus)
+    }
+    if (draggedTask) {
+      const newDueDate = format(date, 'yyyy-MM-dd')
+      setTasks(prev => prev.map(task => 
+        task.id === draggedTask.id 
+          ? { ...task, dueDate: newDueDate, updatedAt: new Date().toISOString() }
+          : task
+      ))
+      toast.success(`Task rescheduled to ${format(date, 'MMM dd, yyyy')}`)
+    }
+    setDraggedTask(null)
+  }
+
+  const generateCalendarDays = () => {
+    const start = startOfWeek(startOfMonth(currentDate))
+    const end = endOfWeek(endOfMonth(currentDate))
+    return eachDayOfInterval({ start, end })
+  }
+
+  const navigateMonth = (direction) => {
+    setCurrentDate(prev => 
+      direction === 'next' ? addMonths(prev, 1) : subMonths(prev, 1)
+    )
+  }
+
     setDraggedTask(null)
   }
 
@@ -223,6 +273,155 @@ function MainFeature() {
     </motion.div>
   )
 
+  const TaskCalendarCell = ({ date, tasks }) => {
+    const isCurrentMonth = isSameMonth(date, currentDate)
+    const isToday = isToday(date)
+    const dayTasks = tasks.slice(0, 3) // Show max 3 tasks per cell
+    const hasMoreTasks = tasks.length > 3
+
+    return (
+      <motion.div
+        className={`min-h-24 sm:min-h-32 p-1 sm:p-2 border border-surface-200 dark:border-surface-700 transition-colors ${
+          isCurrentMonth 
+            ? 'bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700' 
+            : 'bg-surface-50 dark:bg-surface-900'
+        } ${isToday ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+        onDragOver={handleDragOver}
+        onDrop={(e) => handleCalendarDrop(e, date)}
+        whileHover={{ scale: 1.02 }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      >
+        <div className={`text-right mb-1 ${
+          isCurrentMonth 
+            ? isToday 
+              ? 'text-primary font-bold' 
+              : 'text-surface-900 dark:text-surface-100'
+            : 'text-surface-400 dark:text-surface-600'
+        } text-xs sm:text-sm`}>
+          {format(date, 'd')}
+        </div>
+        
+        <div className="space-y-1">
+          {dayTasks.map(task => {
+            const isHighPriority = task.priority === 'high' || task.priority === 'urgent'
+            const isOverdue = isDueDateOverdue(task.dueDate, task.status)
+            const isApproaching = isDeadlineApproaching(task.dueDate, task.status)
+            
+            return (
+              <motion.div
+                key={task.id}
+                draggable
+                onDragStart={() => handleDragStart(task)}
+                className={`text-xs p-1 rounded cursor-move truncate transition-colors ${
+                  isOverdue
+                    ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-300'
+                    : isHighPriority
+                    ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 border border-orange-300'
+                    : isApproaching
+                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 border border-yellow-300'
+                    : 'bg-primary/10 text-primary-dark border border-primary/20'
+                }`}
+                title={task.title}
+                onClick={() => handleEdit(task)}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                {task.title}
+              </motion.div>
+            )
+          })}
+          
+          {hasMoreTasks && (
+            <div className="text-xs text-surface-500 dark:text-surface-400 font-medium">
+              +{tasks.length - 3} more
+            </div>
+          )}
+        </div>
+      </motion.div>
+    )
+  }
+
+  const CalendarView = () => {
+    const calendarDays = generateCalendarDays()
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="card p-4 sm:p-6"
+      >
+        {/* Calendar Header */}
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl sm:text-2xl font-bold text-surface-900 dark:text-surface-100">
+            {format(currentDate, 'MMMM yyyy')}
+          </h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigateMonth('prev')}
+              className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+            >
+              <ApperIcon name="ChevronLeft" className="w-5 h-5 text-surface-600 dark:text-surface-400" />
+            </button>
+            <button
+              onClick={() => setCurrentDate(new Date())}
+              className="px-3 py-1 text-sm font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors"
+            >
+              Today
+            </button>
+            <button
+              onClick={() => navigateMonth('next')}
+              className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+            >
+              <ApperIcon name="ChevronRight" className="w-5 h-5 text-surface-600 dark:text-surface-400" />
+            </button>
+          </div>
+        </div>
+
+        {/* Week Headers */}
+        <div className="grid grid-cols-7 gap-0 mb-2">
+          {weekDays.map(day => (
+            <div key={day} className="p-2 text-center text-sm font-medium text-surface-600 dark:text-surface-400">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7 gap-0 border border-surface-200 dark:border-surface-700 rounded-lg overflow-hidden">
+          {calendarDays.map(date => (
+            <TaskCalendarCell
+              key={date.toISOString()}
+              date={date}
+              tasks={getTasksForDate(date)}
+            />
+          ))}
+        </div>
+
+        {/* Calendar Legend */}
+        <div className="mt-6 flex flex-wrap gap-4 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-red-100 border border-red-300 rounded"></div>
+            <span className="text-surface-600 dark:text-surface-400">Overdue</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-orange-100 border border-orange-300 rounded"></div>
+            <span className="text-surface-600 dark:text-surface-400">High Priority</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded"></div>
+            <span className="text-surface-600 dark:text-surface-400">Due Soon</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-primary/10 border border-primary/20 rounded"></div>
+            <span className="text-surface-600 dark:text-surface-400">Normal</span>
+          </div>
+        </div>
+      </motion.div>
+    )
+  }
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header Controls */}
@@ -258,16 +457,41 @@ function MainFeature() {
             </select>
           </div>
 
-          {/* Add Task Button */}
-          <motion.button
-            onClick={() => setIsFormOpen(true)}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto text-sm sm:text-base"
-          >
-            <ApperIcon name="Plus" className="w-4 h-4 sm:w-5 sm:h-5" />
-            Add Task
-          </motion.button>
+          {/* View Toggle and Add Task */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="flex items-center bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'kanban' 
+                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
+                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+                }`}
+              >
+                <ApperIcon name="Columns" className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'calendar' 
+                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
+                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+                }`}
+              >
+                <ApperIcon name="Calendar" className="w-4 h-4" />
+              </button>
+            </div>
+
+            <motion.button
+              onClick={() => setIsFormOpen(true)}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto text-sm sm:text-base"
+            >
+              <ApperIcon name="Plus" className="w-4 h-4 sm:w-5 sm:h-5" />
+              Add Task
+            </motion.button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -287,64 +511,68 @@ function MainFeature() {
         </div>
       </motion.div>
 
-      {/* Kanban Board */}
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
-        className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8"
-      >
-        {Object.entries(statusColumns).map(([status, config]) => {
-          const statusTasks = getTasksByStatus(status)
-          
-          return (
-            <motion.div
-              key={status}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className={`card p-4 sm:p-6 min-h-96 border-t-4 ${config.color}`}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, status)}
-            >
-              <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
-                  <ApperIcon name={config.icon} className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+      {/* Main Content Area */}
+      {viewMode === 'calendar' ? (
+        <CalendarView />
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8"
+        >
+          {Object.entries(statusColumns).map(([status, config]) => {
+            const statusTasks = getTasksByStatus(status)
+            
+            return (
+              <motion.div
+                key={status}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                className={`card p-4 sm:p-6 min-h-96 border-t-4 ${config.color}`}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, status)}
+              >
+                <div className="flex items-center gap-3 mb-4 sm:mb-6">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
+                    <ApperIcon name={config.icon} className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-surface-900 dark:text-surface-100 text-sm sm:text-base">
+                      {config.title}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-surface-600 dark:text-surface-400">
+                      {statusTasks.length} tasks
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-surface-900 dark:text-surface-100 text-sm sm:text-base">
-                    {config.title}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-surface-600 dark:text-surface-400">
-                    {statusTasks.length} tasks
-                  </p>
-                </div>
-              </div>
 
-              <div className="space-y-3 sm:space-y-4">
-                <AnimatePresence>
-                  {statusTasks.map(task => (
-                    <TaskCard key={task.id} task={task} />
-                  ))}
-                </AnimatePresence>
+                <div className="space-y-3 sm:space-y-4">
+                  <AnimatePresence>
+                    {statusTasks.map(task => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </AnimatePresence>
 
-                {statusTasks.length === 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-center py-8 sm:py-12"
-                  >
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-2xl bg-surface-100 dark:bg-surface-700 flex items-center justify-center">
-                      <ApperIcon name="FileX" className="w-6 h-6 sm:w-8 sm:h-8 text-surface-400" />
+                  {statusTasks.length === 0 && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center py-8 sm:py-12"
+                    >
+                      <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-2xl bg-surface-100 dark:bg-surface-700 flex items-center justify-center">
+                        <ApperIcon name="FileX" className="w-6 h-6 sm:w-8 sm:h-8 text-surface-400" />
+                      </div>
+                      <p className="text-surface-500 dark:text-surface-400 text-sm sm:text-base">No tasks here</p>
                     </div>
-                    <p className="text-surface-500 dark:text-surface-400 text-sm sm:text-base">No tasks here</p>
-                  </motion.div>
-                )}
-              </div>
-            </motion.div>
-          )
-        })}
-      </motion.div>
+                  )}
+                </div>
+              </motion.div>
+            )
+          })}
+        </motion.div>
+      )}
 
       {/* Task Form Modal */}
       <AnimatePresence>
