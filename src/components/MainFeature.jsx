@@ -560,7 +560,6 @@ function MainFeature() {
                       </div>
                       <p className="text-surface-500 dark:text-surface-400 text-sm sm:text-base">No tasks here</p>
                     </motion.div>
-                    </div>
                   )}
                 </div>
               </motion.div>
