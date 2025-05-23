@@ -245,8 +245,7 @@ function MainFeature() {
       direction === 'next' ? addMonths(prev, 1) : subMonths(prev, 1)
     )
   }
-
-  const TaskCard = ({ task }) => (
+  // Dashboard Analytics Functions
   // Dashboard Analytics Functions
   const getDashboardData = () => {
     const today = new Date()
@@ -642,7 +641,8 @@ function MainFeature() {
       </motion.div>
     )
   }
-
+  const TaskCard = ({ task }) => (
+    <motion.div
     <motion.div
       layout
       initial={{ opacity: 0, y: 20 }}
@@ -776,7 +776,7 @@ function MainFeature() {
   }
 
   const CalendarView = () => {
-  const TaskDateView = () => {
+    const TaskDateView = () => {
     const tasksForDate = getTasksForDate(selectedDate)
     const dateString = format(selectedDate, 'EEEE, MMMM d, yyyy')
     
@@ -857,6 +857,7 @@ function MainFeature() {
     )
   }
 
+    const calendarDays = generateCalendarDays()
     const calendarDays = generateCalendarDays()
     const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
