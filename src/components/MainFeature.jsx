@@ -102,7 +102,7 @@ function MainFeature() {
       ...formData,
       id: editingTask ? editingTask.id : Date.now().toString(),
       createdAt: editingTask ? editingTask.createdAt : new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
       attachments: editingTask ? editingTask.attachments || [] : [],
       comments: editingTask ? editingTask.comments || [] : []
     }
@@ -124,10 +124,10 @@ function MainFeature() {
       description: '',
       priority: 'medium',
       dueDate: '',
-      status: 'todo'
       status: 'todo',
       attachments: [],
       comments: []
+    })
     setIsFormOpen(false)
     setEditingTask(null)
   }
