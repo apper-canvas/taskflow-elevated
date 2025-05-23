@@ -187,9 +187,6 @@ function MainFeature() {
 
   const handleCalendarDrop = (e, date) => {
     e.preventDefault()
-    if (draggedTask && draggedTask.status !== newStatus) {
-      handleStatusChange(draggedTask.id, newStatus)
-    }
     if (draggedTask) {
       const newDueDate = format(date, 'yyyy-MM-dd')
       setTasks(prev => prev.map(task => 
@@ -212,9 +209,6 @@ function MainFeature() {
     setCurrentDate(prev => 
       direction === 'next' ? addMonths(prev, 1) : subMonths(prev, 1)
     )
-  }
-
-    setDraggedTask(null)
   }
 
   const TaskCard = ({ task }) => (
@@ -275,7 +269,7 @@ function MainFeature() {
 
   const TaskCalendarCell = ({ date, tasks }) => {
     const isCurrentMonth = isSameMonth(date, currentDate)
-    const isToday = isToday(date)
+    const isTodayDate = isToday(date)
     const dayTasks = tasks.slice(0, 3) // Show max 3 tasks per cell
     const hasMoreTasks = tasks.length > 3
 
@@ -285,7 +279,7 @@ function MainFeature() {
           isCurrentMonth 
             ? 'bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700' 
             : 'bg-surface-50 dark:bg-surface-900'
-        } ${isToday ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+        } ${isTodayDate ? 'ring-2 ring-primary bg-primary/5' : ''}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleCalendarDrop(e, date)}
         whileHover={{ scale: 1.02 }}
@@ -293,7 +287,7 @@ function MainFeature() {
       >
         <div className={`text-right mb-1 ${
           isCurrentMonth 
-            ? isToday 
+            ? isTodayDate 
               ? 'text-primary font-bold' 
               : 'text-surface-900 dark:text-surface-100'
             : 'text-surface-400 dark:text-surface-600'
