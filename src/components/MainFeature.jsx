@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-toastify'
+import { useDropzone } from 'react-dropzone'
+import { saveAs } from 'file-saver'
 import { 
   format, isToday, isTomorrow, isPast, startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
   eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, subDays, parseISO,
@@ -47,6 +49,7 @@ function MainFeature() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
 
+  const [activeTab, setActiveTab] = useState('details')
   // Dashboard state
   const [dashboardDateRange, setDashboardDateRange] = useState('30') // days
 
@@ -56,7 +59,9 @@ function MainFeature() {
     description: '',
     priority: 'medium',
     dueDate: '',
-    status: 'todo'
+    status: 'todo',
+    attachments: [],
+    comments: []
   })
 
   // Load tasks from localStorage on mount
@@ -98,6 +103,8 @@ function MainFeature() {
       id: editingTask ? editingTask.id : Date.now().toString(),
       createdAt: editingTask ? editingTask.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
+      attachments: editingTask ? editingTask.attachments || [] : [],
+      comments: editingTask ? editingTask.comments || [] : []
     }
 
     if (editingTask) {
@@ -118,7 +125,9 @@ function MainFeature() {
       priority: 'medium',
       dueDate: '',
       status: 'todo'
-    })
+      status: 'todo',
+      attachments: [],
+      comments: []
     setIsFormOpen(false)
     setEditingTask(null)
   }
@@ -129,7 +138,9 @@ function MainFeature() {
       description: task.description,
       priority: task.priority,
       dueDate: task.dueDate,
-      status: task.status
+      status: task.status,
+      attachments: task.attachments || [],
+      comments: task.comments || []
     })
     setEditingTask(task)
     setIsFormOpen(true)
@@ -245,6 +256,186 @@ function MainFeature() {
       direction === 'next' ? addMonths(prev, 1) : subMonths(prev, 1)
     )
   }
+
+  // File attachment functions
+  const handleFileUpload = async (acceptedFiles) => {
+    const newAttachments = await Promise.all(
+      acceptedFiles.map(async (file) => {
+        const fileUrl = await convertFileToBase64(file)
+        return {
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          url: fileUrl,
+          uploadedAt: new Date().toISOString()
+        }
+      })
+    )
+
+    setFormData(prev => ({
+      ...prev,
+      attachments: [...prev.attachments, ...newAttachments]
+    }))
+
+    toast.success(`${newAttachments.length} file(s) uploaded successfully!`)
+  }
+
+  const convertFileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = error => reject(error)
+    })
+  }
+
+  const handleFileDelete = (attachmentId) => {
+    if (window.confirm('Are you sure you want to delete this attachment?')) {
+      setFormData(prev => ({
+        ...prev,
+        attachments: prev.attachments.filter(att => att.id !== attachmentId)
+      }))
+      toast.success('Attachment deleted successfully!')
+    }
+  }
+
+  const handleFileDownload = (attachment) => {
+    try {
+      // Convert base64 to blob and download
+      const base64Data = attachment.url.split(',')[1]
+      const byteCharacters = atob(base64Data)
+      const byteNumbers = new Array(byteCharacters.length)
+      
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: attachment.type })
+      saveAs(blob, attachment.name)
+      
+      toast.success('File downloaded successfully!')
+    } catch (error) {
+      toast.error('Failed to download file')
+    }
+  }
+
+  const getFileIcon = (fileType) => {
+    if (fileType.startsWith('image/')) return 'Image'
+    if (fileType.includes('pdf')) return 'FileText'
+    if (fileType.includes('word') || fileType.includes('document')) return 'FileText'
+    if (fileType.includes('sheet') || fileType.includes('excel')) return 'FileSpreadsheet'
+    if (fileType.includes('presentation') || fileType.includes('powerpoint')) return 'Presentation'
+    return 'File'
+  }
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  // Comment functions
+  const [newComment, setNewComment] = useState('')
+  const [replyingTo, setReplyingTo] = useState(null)
+  const [replyText, setReplyText] = useState('')
+
+  const handleAddComment = () => {
+    if (!newComment.trim()) {
+      toast.error('Please enter a comment')
+      return
+    }
+
+    const comment = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      text: newComment,
+      author: 'Current User', // In a real app, this would come from authentication
+      createdAt: new Date().toISOString(),
+      replies: []
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      comments: [...prev.comments, comment]
+    }))
+
+    setNewComment('')
+    toast.success('Comment added successfully!')
+  }
+
+  const handleAddReply = (parentCommentId) => {
+    if (!replyText.trim()) {
+      toast.error('Please enter a reply')
+      return
+    }
+
+    const reply = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      text: replyText,
+      author: 'Current User',
+      createdAt: new Date().toISOString()
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      comments: prev.comments.map(comment =>
+        comment.id === parentCommentId
+          ? { ...comment, replies: [...comment.replies, reply] }
+          : comment
+      )
+    }))
+
+    setReplyText('')
+    setReplyingTo(null)
+    toast.success('Reply added successfully!')
+  }
+
+  const handleDeleteComment = (commentId, isReply = false, parentCommentId = null) => {
+    if (window.confirm('Are you sure you want to delete this comment?')) {
+      if (isReply && parentCommentId) {
+        setFormData(prev => ({
+          ...prev,
+          comments: prev.comments.map(comment =>
+            comment.id === parentCommentId
+              ? { ...comment, replies: comment.replies.filter(reply => reply.id !== commentId) }
+              : comment
+          )
+        }))
+      } else {
+        setFormData(prev => ({
+          ...prev,
+          comments: prev.comments.filter(comment => comment.id !== commentId)
+        }))
+      }
+      toast.success('Comment deleted successfully!')
+    }
+  }
+
+  // File upload dropzone configuration
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop: handleFileUpload,
+    accept: {
+      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg'],
+      'application/pdf': ['.pdf'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-powerpoint': ['.ppt'],
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+      'text/plain': ['.txt'],
+      'application/zip': ['.zip'],
+      'application/x-rar-compressed': ['.rar']
+    },
+    maxSize: 10 * 1024 * 1024, // 10MB
+    onDropRejected: (rejectedFiles) => {
+      toast.error(`Some files were rejected. Please check file size (max 10MB) and type.`)
+    }
+  })
+
   // Dashboard Analytics Functions
   // Dashboard Analytics Functions
   const getDashboardData = () => {
@@ -1117,7 +1308,7 @@ function MainFeature() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: "spring", damping: 25 }}
-              className="card p-6 sm:p-8 w-full max-w-md max-h-[90vh] overflow-y-auto"
+              className="card p-6 sm:p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl sm:text-2xl font-bold text-surface-900 dark:text-surface-100">
@@ -1131,96 +1322,394 @@ function MainFeature() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                    Task Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                    className="input-field"
-                    placeholder="Enter task title..."
-                    required
-                  />
-                </div>
+              {/* Tab Navigation */}
+              <div className="tab-nav">
+                <button
+                  type="button"
+                  className={`tab-button ${activeTab === 'details' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('details')}
+                >
+                  <ApperIcon name="FileText" className="w-4 h-4 mr-2 inline" />
+                  Details
+                </button>
+                <button
+                  type="button"
+                  className={`tab-button ${activeTab === 'attachments' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('attachments')}
+                >
+                  <ApperIcon name="Paperclip" className="w-4 h-4 mr-2 inline" />
+                  Attachments ({formData.attachments.length})
+                </button>
+                <button
+                  type="button"
+                  className={`tab-button ${activeTab === 'comments' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('comments')}
+                >
+                  <ApperIcon name="MessageSquare" className="w-4 h-4 mr-2 inline" />
+                  Comments ({formData.comments.length})
+                </button>
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    className="input-field resize-none"
-                    rows={3}
-                    placeholder="Task description..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Tab Content */}
+              {activeTab === 'details' && (
+                <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
                   <div>
                     <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                      Priority
+                      Task Title *
                     </label>
-                    <select
-                      value={formData.priority}
-                      onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
                       className="input-field"
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
+                      placeholder="Enter task title..."
+                      required
+                    />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                      Status
+                      Description
                     </label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                      className="input-field"
-                    >
-                      <option value="todo">To Do</option>
-                      <option value="in-progress">In Progress</option>
-                      <option value="completed">Completed</option>
-                    </select>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                      className="input-field resize-none"
+                      rows={3}
+                      placeholder="Task description..."
+                    />
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                    className="input-field"
-                  />
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                        Priority
+                      </label>
+                      <select
+                        value={formData.priority}
+                        onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
+                        className="input-field"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </select>
+                    </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4">
-                  <button
-                    type="submit"
-                    className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    <div>
+                      <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                        Status
+                      </label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                        className="input-field"
+                      >
+                        <option value="todo">To Do</option>
+                        <option value="in-progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                      Due Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.dueDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, dueDate: e.target.value }))}
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4">
+                    <button
+                      type="submit"
+                      className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    >
+                      <ApperIcon name={editingTask ? "Save" : "Plus"} className="w-4 h-4" />
+                      {editingTask ? 'Update Task' : 'Create Task'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="btn-secondary flex-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Attachments Tab */}
+              {activeTab === 'attachments' && (
+                <div className="space-y-6">
+                  {/* File Upload Zone */}
+                  <div
+                    {...getRootProps()}
+                    className={`upload-zone ${isDragActive ? 'dragover' : ''}`}
                   >
-                    <ApperIcon name={editingTask ? "Save" : "Plus"} className="w-4 h-4" />
-                    {editingTask ? 'Update Task' : 'Create Task'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="btn-secondary flex-1"
-                  >
-                    Cancel
-                  </button>
+                    <input {...getInputProps()} />
+                    <div className="text-center">
+                      <ApperIcon name="Upload" className="w-12 h-12 mx-auto mb-4 text-surface-400" />
+                      <p className="text-lg font-medium text-surface-900 dark:text-surface-100 mb-2">
+                        {isDragActive ? 'Drop files here' : 'Upload files'}
+                      </p>
+                      <p className="text-sm text-surface-600 dark:text-surface-400 mb-4">
+                        Drag and drop files here, or click to select files
+                      </p>
+                      <p className="text-xs text-surface-500 dark:text-surface-500">
+                        Supports: Images, PDFs, Documents, Spreadsheets (Max 10MB each)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Attachments List */}
+                  {formData.attachments.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+                        Attachments ({formData.attachments.length})
+                      </h4>
+                      <div className="attachment-grid">
+                        {formData.attachments.map((attachment) => (
+                          <motion.div
+                            key={attachment.id}
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="attachment-item"
+                          >
+                            {/* File Preview */}
+                            <div className="mb-3">
+                              {attachment.type.startsWith('image/') ? (
+                                <img
+                                  src={attachment.url}
+                                  alt={attachment.name}
+                                  className="file-preview"
+                                />
+                              ) : (
+                                <div className="file-icon">
+                                  <ApperIcon 
+                                    name={getFileIcon(attachment.type)} 
+                                    className="w-8 h-8 text-white" 
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* File Info */}
+                            <div className="mb-3">
+                              <h5 className="font-medium text-surface-900 dark:text-surface-100 text-sm truncate" title={attachment.name}>
+                                {attachment.name}
+                              </h5>
+                              <p className="text-xs text-surface-600 dark:text-surface-400 mt-1">
+                                {formatFileSize(attachment.size)}
+                              </p>
+                              <p className="text-xs text-surface-500 dark:text-surface-500">
+                                {format(new Date(attachment.uploadedAt), 'MMM dd, yyyy')}
+                              </p>
+                            </div>
+
+                            {/* File Actions */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleFileDownload(attachment)}
+                                className="flex-1 px-3 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+                              >
+                                <ApperIcon name="Download" className="w-3 h-3 mr-1 inline" />
+                                Download
+                              </button>
+                              <button
+                                onClick={() => handleFileDelete(attachment.id)}
+                                className="px-2 py-1 text-xs bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                              >
+                                <ApperIcon name="Trash2" className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.attachments.length === 0 && (
+                    <div className="text-center py-8">
+                      <ApperIcon name="Paperclip" className="w-12 h-12 mx-auto mb-4 text-surface-400" />
+                      <p className="text-surface-600 dark:text-surface-400">No attachments yet</p>
+                    </div>
+                  )}
                 </div>
-              </form>
+              )}
+
+              {/* Comments Tab */}
+              {activeTab === 'comments' && (
+                <div className="space-y-6">
+                  {/* Add Comment */}
+                  <div>
+                    <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-3">
+                      Add a comment
+                    </label>
+                    <div className="flex gap-3">
+                      <textarea
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        className="input-field resize-none flex-1"
+                        rows={3}
+                        placeholder="Write your comment here..."
+                      />
+                      <button
+                        onClick={handleAddComment}
+                        className="btn-primary h-fit px-4 py-2"
+                      >
+                        <ApperIcon name="Send" className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Comments List */}
+                  {formData.comments.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+                        Comments ({formData.comments.length})
+                      </h4>
+                      <div className="comment-thread">
+                        {formData.comments.map((comment) => (
+                          <motion.div
+                            key={comment.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="comment-item"
+                          >
+                            {/* Comment Header */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-full flex items-center justify-center">
+                                  <span className="text-white text-sm font-medium">
+                                    {comment.author.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="font-medium text-surface-900 dark:text-surface-100 text-sm">
+                                    {comment.author}
+                                  </p>
+                                  <p className="text-xs text-surface-500 dark:text-surface-500">
+                                    {format(new Date(comment.createdAt), 'MMM dd, yyyy • HH:mm')}
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteComment(comment.id)}
+                                className="p-1 text-surface-400 hover:text-red-500 transition-colors"
+                              >
+                                <ApperIcon name="Trash2" className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Comment Text */}
+                            <p className="text-surface-700 dark:text-surface-300 mb-3">
+                              {comment.text}
+                            </p>
+
+                            {/* Comment Actions */}
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+                                className="text-sm text-primary hover:text-primary-dark transition-colors"
+                              >
+                                <ApperIcon name="Reply" className="w-4 h-4 mr-1 inline" />
+                                Reply
+                              </button>
+                            </div>
+
+                            {/* Reply Form */}
+                            {replyingTo === comment.id && (
+                              <div className="mt-4 pl-4 border-l-2 border-surface-300 dark:border-surface-600">
+                                <div className="flex gap-3">
+                                  <textarea
+                                    value={replyText}
+                                    onChange={(e) => setReplyText(e.target.value)}
+                                    className="input-field resize-none flex-1"
+                                    rows={2}
+                                    placeholder="Write your reply..."
+                                  />
+                                  <div className="flex flex-col gap-2">
+                                    <button
+                                      onClick={() => handleAddReply(comment.id)}
+                                      className="btn-primary px-3 py-1 text-sm"
+                                    >
+                                      Reply
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setReplyingTo(null)
+                                        setReplyText('')
+                                      }}
+                                      className="btn-secondary px-3 py-1 text-sm"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Replies */}
+                            {comment.replies && comment.replies.length > 0 && (
+                              <div className="comment-reply">
+                                {comment.replies.map((reply) => (
+                                  <motion.div
+                                    key={reply.id}
+                                    initial={{ opacity: 0, x: 10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="comment-item"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 bg-gradient-to-br from-secondary to-primary rounded-full flex items-center justify-center">
+                                          <span className="text-white text-xs font-medium">
+                                            {reply.author.charAt(0).toUpperCase()}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <p className="font-medium text-surface-900 dark:text-surface-100 text-sm">
+                                            {reply.author}
+                                          </p>
+                                          <p className="text-xs text-surface-500 dark:text-surface-500">
+                                            {format(new Date(reply.createdAt), 'MMM dd, yyyy • HH:mm')}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => handleDeleteComment(reply.id, true, comment.id)}
+                                        className="p-1 text-surface-400 hover:text-red-500 transition-colors"
+                                      >
+                                        <ApperIcon name="Trash2" className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                    <p className="text-surface-700 dark:text-surface-300">
+                                      {reply.text}
+                                    </p>
+                                  </motion.div>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.comments.length === 0 && (
+                    <div className="text-center py-8">
+                      <ApperIcon name="MessageSquare" className="w-12 h-12 mx-auto mb-4 text-surface-400" />
+                      <p className="text-surface-600 dark:text-surface-400">No comments yet</p>
+                      <p className="text-sm text-surface-500 dark:text-surface-500">Be the first to add a comment!</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
