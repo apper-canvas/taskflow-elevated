@@ -1,20 +1,54 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-toastify'
-import { format, isToday, isTomorrow, isPast, startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
-         eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns'
+import { 
+  format, isToday, isTomorrow, isPast, startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
+  eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, subDays, parseISO,
+  differenceInDays, startOfDay, endOfDay, isAfter, isBefore, startOfWeek as startOfWeekFn,
+  endOfWeek as endOfWeekFn
+} from 'date-fns'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  Filler
+} from 'chart.js'
+import { Bar, Line, Pie, Doughnut } from 'react-chartjs-2'
 import ApperIcon from './ApperIcon'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+  Filler
+)
 
 function MainFeature() {
   const [tasks, setTasks] = useState([])
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [isFormOpen, setIsFormOpen] = useState(false)
-  const [viewMode, setViewMode] = useState('kanban') // 'kanban' or 'calendar'
+  const [viewMode, setViewMode] = useState('kanban') // 'kanban', 'calendar', or 'dashboard'
   const [currentDate, setCurrentDate] = useState(new Date())
   const [editingTask, setEditingTask] = useState(null)
   const [selectedDate, setSelectedDate] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
+
+  // Dashboard state
+  const [dashboardDateRange, setDashboardDateRange] = useState('30') // days
 
   // Form state
   const [formData, setFormData] = useState({
@@ -213,6 +247,402 @@ function MainFeature() {
   }
 
   const TaskCard = ({ task }) => (
+  // Dashboard Analytics Functions
+  const getDashboardData = () => {
+    const today = new Date()
+    let startDate
+    
+    switch (dashboardDateRange) {
+      case '7':
+        startDate = subDays(today, 7)
+        break
+      case '30':
+        startDate = subDays(today, 30)
+        break
+      case '90':
+        startDate = subDays(today, 90)
+        break
+      default:
+        startDate = new Date(0) // All time
+    }
+    
+    return tasks.filter(task => {
+      const taskDate = new Date(task.createdAt)
+      return isAfter(taskDate, startDate) || dashboardDateRange === 'all'
+    })
+  }
+
+  const getCompletionMetrics = () => {
+    const dashboardTasks = getDashboardData()
+    const totalTasks = dashboardTasks.length
+    const completedTasks = dashboardTasks.filter(task => task.status === 'completed').length
+    const inProgressTasks = dashboardTasks.filter(task => task.status === 'in-progress').length
+    const todoTasks = dashboardTasks.filter(task => task.status === 'todo').length
+    
+    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks * 100) : 0
+    
+    return {
+      totalTasks,
+      completedTasks,
+      inProgressTasks,
+      todoTasks,
+      completionRate: completionRate.toFixed(1)
+    }
+  }
+
+  const getAverageCompletionTime = () => {
+    const completedTasks = getDashboardData().filter(task => 
+      task.status === 'completed' && task.createdAt && task.updatedAt
+    )
+    
+    if (completedTasks.length === 0) return 0
+    
+    const totalDays = completedTasks.reduce((sum, task) => {
+      const created = new Date(task.createdAt)
+      const completed = new Date(task.updatedAt)
+      return sum + differenceInDays(completed, created)
+    }, 0)
+    
+    return (totalDays / completedTasks.length).toFixed(1)
+  }
+
+  const getPriorityDistribution = () => {
+    const dashboardTasks = getDashboardData()
+    const distribution = {
+      low: dashboardTasks.filter(task => task.priority === 'low').length,
+      medium: dashboardTasks.filter(task => task.priority === 'medium').length,
+      high: dashboardTasks.filter(task => task.priority === 'high').length,
+      urgent: dashboardTasks.filter(task => task.priority === 'urgent').length
+    }
+    return distribution
+  }
+
+  const getWeeklyProgress = () => {
+    const weeks = []
+    const today = new Date()
+    
+    for (let i = 6; i >= 0; i--) {
+      const weekStart = startOfWeekFn(subDays(today, i * 7))
+      const weekEnd = endOfWeekFn(weekStart)
+      
+      const weekTasks = tasks.filter(task => {
+        if (!task.updatedAt) return false
+        const taskDate = new Date(task.updatedAt)
+        return isAfter(taskDate, weekStart) && isBefore(taskDate, weekEnd)
+      })
+      
+      const completed = weekTasks.filter(task => task.status === 'completed').length
+      
+      weeks.push({
+        week: format(weekStart, 'MMM dd'),
+        completed,
+        total: weekTasks.length
+      })
+    }
+    
+    return weeks
+  }
+
+  const getOverdueTasks = () => {
+    const today = new Date()
+    return getDashboardData().filter(task => 
+      task.dueDate && 
+      task.status !== 'completed' && 
+      isBefore(new Date(task.dueDate), today)
+    ).length
+  }
+
+  // Chart configurations
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          color: '#64748b'
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        titleColor: '#1e293b',
+        bodyColor: '#475569',
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        cornerRadius: 8
+      }
+    },
+    scales: {
+      x: {
+        grid: {
+          color: '#f1f5f9'
+        },
+        ticks: {
+          color: '#64748b'
+        }
+      },
+      y: {
+        grid: {
+          color: '#f1f5f9'
+        },
+        ticks: {
+          color: '#64748b'
+        }
+      }
+    }
+  }
+
+  const pieChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: {
+          usePointStyle: true,
+          color: '#64748b',
+          padding: 20
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        titleColor: '#1e293b',
+        bodyColor: '#475569',
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        cornerRadius: 8
+      }
+    }
+  }
+
+  const DashboardView = () => {
+    const metrics = getCompletionMetrics()
+    const avgCompletionTime = getAverageCompletionTime()
+    const priorityDist = getPriorityDistribution()
+    const weeklyData = getWeeklyProgress()
+    const overdueTasks = getOverdueTasks()
+
+    // Status distribution chart data
+    const statusChartData = {
+      labels: ['Completed', 'In Progress', 'To Do'],
+      datasets: [{
+        data: [metrics.completedTasks, metrics.inProgressTasks, metrics.todoTasks],
+        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b'],
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    }
+
+    // Priority distribution chart data
+    const priorityChartData = {
+      labels: ['Low', 'Medium', 'High', 'Urgent'],
+      datasets: [{
+        data: [priorityDist.low, priorityDist.medium, priorityDist.high, priorityDist.urgent],
+        backgroundColor: ['#10b981', '#f59e0b', '#f97316', '#ef4444'],
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    }
+
+    // Weekly progress chart data
+    const weeklyChartData = {
+      labels: weeklyData.map(week => week.week),
+      datasets: [
+        {
+          label: 'Completed Tasks',
+          data: weeklyData.map(week => week.completed),
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          borderColor: '#6366f1',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.4,
+          pointBackgroundColor: '#6366f1',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 2,
+          pointRadius: 6
+        }
+      ]
+    }
+
+    // Completion rate bar chart
+    const completionBarData = {
+      labels: ['This Period'],
+      datasets: [
+        {
+          label: 'Completion Rate (%)',
+          data: [metrics.completionRate],
+          backgroundColor: 'rgba(16, 185, 129, 0.8)',
+          borderColor: '#10b981',
+          borderWidth: 2,
+          borderRadius: 8
+        }
+      ]
+    }
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="space-y-6"
+      >
+        {/* Dashboard Header */}
+        <div className="card p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="text-xl sm:text-2xl font-bold text-surface-900 dark:text-surface-100">
+                Progress Dashboard
+              </h3>
+              <p className="text-surface-600 dark:text-surface-400 mt-1">
+                Analytics and insights for your tasks and productivity
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <select
+                value={dashboardDateRange}
+                onChange={(e) => setDashboardDateRange(e.target.value)}
+                className="input-field w-auto text-sm"
+              >
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="all">All time</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Key Metrics Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="card p-4 sm:p-6 text-center"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
+              <ApperIcon name="CheckCircle" className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100">
+              {metrics.completionRate}%
+            </div>
+            <div className="text-sm text-surface-600 dark:text-surface-400">
+              Completion Rate
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="card p-4 sm:p-6 text-center"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+              <ApperIcon name="Clock" className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100">
+              {avgCompletionTime}
+            </div>
+            <div className="text-sm text-surface-600 dark:text-surface-400">
+              Avg. Days to Complete
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="card p-4 sm:p-6 text-center"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-purple-500 to-violet-500 flex items-center justify-center">
+              <ApperIcon name="BarChart3" className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100">
+              {metrics.totalTasks}
+            </div>
+            <div className="text-sm text-surface-600 dark:text-surface-400">
+              Total Tasks
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="card p-4 sm:p-6 text-center"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-red-500 to-pink-500 flex items-center justify-center">
+              <ApperIcon name="AlertTriangle" className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100">
+              {overdueTasks}
+            </div>
+            <div className="text-sm text-surface-600 dark:text-surface-400">
+              Overdue Tasks
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Charts Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Weekly Progress Line Chart */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+            className="card p-4 sm:p-6"
+          >
+            <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+              Weekly Progress Trend
+            </h4>
+            <div className="h-64">
+              <Line data={weeklyChartData} options={chartOptions} />
+            </div>
+          </motion.div>
+
+          {/* Completion Rate Bar Chart */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="card p-4 sm:p-6"
+          >
+            <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+              Completion Rate
+            </h4>
+            <div className="h-64">
+              <Bar data={completionBarData} options={chartOptions} />
+            </div>
+          </motion.div>
+
+          {/* Task Status Distribution */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.4 }}
+            className="card p-4 sm:p-6"
+          >
+            <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+              Task Status Distribution
+            </h4>
+            <div className="h-64">
+              <Doughnut data={statusChartData} options={pieChartOptions} />
+            </div>
+          </motion.div>
+
+          {/* Priority Distribution */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.5 }}
+            className="card p-4 sm:p-6"
+          >
+            <h4 className="text-lg font-semibold text-surface-900 dark:text-surface-100 mb-4">
+              Priority Distribution
+            </h4>
+            <div className="h-64">
+              <Pie data={priorityChartData} options={pieChartOptions} />
+            </div>
+          </motion.div>
+        </div>
+      </motion.div>
+    )
+  }
+
     <motion.div
       layout
       initial={{ opacity: 0, y: 20 }}
@@ -543,7 +973,7 @@ function MainFeature() {
           </div>
 
           {/* View Toggle and Add Task */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
               <button
                 onClick={() => setViewMode('kanban')}
@@ -564,6 +994,16 @@ function MainFeature() {
                 }`}
               >
                 <ApperIcon name="Calendar" className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('dashboard')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'dashboard' 
+                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
+                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+                }`}
+              >
+                <ApperIcon name="BarChart3" className="w-4 h-4" />
               </button>
             </div>
 
@@ -599,6 +1039,8 @@ function MainFeature() {
       {/* Main Content Area */}
       {selectedDate ? (
         <TaskDateView />
+      ) : viewMode === 'dashboard' ? (
+        <DashboardView />
       ) : viewMode === 'calendar' ? (
         <CalendarView />
       ) : (
