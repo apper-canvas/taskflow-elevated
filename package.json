@@ -20,7 +20,9 @@
     "chart.js": "^4.4.0",
   "react-chartjs-2": "^5.2.0",
   "react-dropzone": "^14.2.3",
-  "file-saver": "^2.0.5"
+  "file-saver": "^2.0.5",
+  "react-transition-group": "^4.4.5",
+  "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",

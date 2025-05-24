@@ -65,6 +65,7 @@ function MainFeature() {
   })
 
   // Load tasks from localStorage on mount
+  const [showNotificationPreferences, setShowNotificationPreferences] = useState(false)
   useEffect(() => {
     const savedTasks = localStorage.getItem('taskflow-tasks')
     if (savedTasks) {
@@ -1184,6 +1185,175 @@ function MainFeature() {
                     ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
                     : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
                 }`}
+  // Notification Preferences Modal
+  const NotificationPreferencesModal = () => {
+    const handlePreferenceChange = (key, value) => {
+      setNotificationPreferences(prev => ({ ...prev, [key]: value }))
+    }
+
+    return (
+      <AnimatePresence>
+        {showNotificationPreferences && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => e.target === e.currentTarget && setShowNotificationPreferences(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-surface-900 dark:text-surface-100">
+                  Notification Preferences
+                </h3>
+                <button
+                  onClick={() => setShowNotificationPreferences(false)}
+                  className="p-2 rounded-xl hover:bg-surface-100 dark:hover:bg-surface-700 transition-colors"
+                >
+                  <ApperIcon name="X" className="w-5 h-5 text-surface-600 dark:text-surface-400" />
+                </button>
+              </div>
+
+              <div className="notification-preferences">
+                {/* Browser Permission */}
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Browser Notifications
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      {notificationPermission === 'granted' 
+                        ? 'Browser notifications are enabled'
+                        : 'Enable browser notifications for desktop alerts'}
+                    </p>
+                  </div>
+                  {notificationPermission !== 'granted' ? (
+                    <button
+                      onClick={requestNotificationPermission}
+                      className="btn-primary text-sm px-4 py-2"
+                    >
+                      Enable
+                    </button>
+                  ) : (
+                    <button
+                      className={`notification-toggle ${notificationPreferences.enableBrowser ? 'enabled' : ''}`}
+                      onClick={() => handlePreferenceChange('enableBrowser', !notificationPreferences.enableBrowser)}
+                    >
+                      <span className="notification-toggle-switch" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Notification Types */}
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Overdue Tasks
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      Get notified about overdue tasks
+                    </p>
+                  </div>
+                  <button
+                    className={`notification-toggle ${notificationPreferences.overdueTasks ? 'enabled' : ''}`}
+                    onClick={() => handlePreferenceChange('overdueTasks', !notificationPreferences.overdueTasks)}
+                  >
+                    <span className="notification-toggle-switch" />
+                  </button>
+                </div>
+
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Tasks Due Today
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      Get notified about tasks due today
+                    </p>
+                  </div>
+                  <button
+                    className={`notification-toggle ${notificationPreferences.dueTodayTasks ? 'enabled' : ''}`}
+                    onClick={() => handlePreferenceChange('dueTodayTasks', !notificationPreferences.dueTodayTasks)}
+                  >
+                    <span className="notification-toggle-switch" />
+                  </button>
+                </div>
+
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Upcoming Deadlines
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      Get notified about upcoming deadlines
+                    </p>
+                  </div>
+                  <button
+                    className={`notification-toggle ${notificationPreferences.upcomingDeadlines ? 'enabled' : ''}`}
+                    onClick={() => handlePreferenceChange('upcomingDeadlines', !notificationPreferences.upcomingDeadlines)}
+                  >
+                    <span className="notification-toggle-switch" />
+                  </button>
+                </div>
+
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Task Completions
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      Get notified when tasks are completed
+                    </p>
+                  </div>
+                  <button
+                    className={`notification-toggle ${notificationPreferences.taskCompletions ? 'enabled' : ''}`}
+                    onClick={() => handlePreferenceChange('taskCompletions', !notificationPreferences.taskCompletions)}
+                  >
+                    <span className="notification-toggle-switch" />
+                  </button>
+                </div>
+
+                {/* Reminder Timing */}
+                <div className="notification-setting">
+                  <div>
+                    <h4 className="font-medium text-surface-900 dark:text-surface-100">
+                      Reminder Timing
+                    </h4>
+                    <p className="text-sm text-surface-600 dark:text-surface-400">
+                      When to send reminders for upcoming tasks
+                    </p>
+                  </div>
+                  <select
+                    value={notificationPreferences.reminderTiming}
+                    onChange={(e) => handlePreferenceChange('reminderTiming', e.target.value)}
+                    className="input-field w-32 text-sm"
+                  >
+                    <option value="day">1 Day Before</option>
+                    <option value="week">1 Week Before</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowNotificationPreferences(false)}
+                  className="btn-secondary"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    )
+  }
+
               >
                 <ApperIcon name="Calendar" className="w-4 h-4" />
               </button>
@@ -1266,6 +1436,15 @@ function MainFeature() {
                     <p className="text-xs sm:text-sm text-surface-600 dark:text-surface-400">
                       {statusTasks.length} tasks
                     </p>
+            
+            {/* Notification Preferences Button */}
+            <button
+              onClick={() => setShowNotificationPreferences(true)}
+              className="p-3 rounded-xl bg-white dark:bg-surface-800 shadow-card hover:shadow-soft transition-all duration-200 border border-surface-200 dark:border-surface-700"
+              title="Notification Preferences"
+            >
+              <ApperIcon name="Settings" className="w-5 h-5 text-surface-700 dark:text-surface-300" />
+            </button>
                   </div>
                 </div>
 
@@ -1721,3 +1900,6 @@ function MainFeature() {
 }
 
 export default MainFeature
+      
+      {/* Notification Preferences Modal */}
+      <NotificationPreferencesModal />
