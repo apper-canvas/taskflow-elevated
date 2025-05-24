@@ -49,6 +49,20 @@ function MainFeature() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
 
+  // Notification state
+  const [notifications, setNotifications] = useState([])
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false)
+  const [notificationPermission, setNotificationPermission] = useState(Notification.permission)
+  const [showNotificationPreferences, setShowNotificationPreferences] = useState(false)
+  const [notificationPreferences, setNotificationPreferences] = useState({
+    enableBrowser: true,
+    overdueTasks: true,
+    dueTodayTasks: true,
+    upcomingDeadlines: true,
+    taskCompletions: true,
+    reminderTiming: 'day'
+  })
+
   const [activeTab, setActiveTab] = useState('details')
   // Dashboard state
   const [dashboardDateRange, setDashboardDateRange] = useState('30') // days
@@ -65,7 +79,6 @@ function MainFeature() {
   })
 
   // Load tasks from localStorage on mount
-  const [showNotificationPreferences, setShowNotificationPreferences] = useState(false)
   useEffect(() => {
     const savedTasks = localStorage.getItem('taskflow-tasks')
     if (savedTasks) {
@@ -77,6 +90,202 @@ function MainFeature() {
   useEffect(() => {
     localStorage.setItem('taskflow-tasks', JSON.stringify(tasks))
   }, [tasks])
+
+  // Load notification preferences from localStorage
+  useEffect(() => {
+    const savedPreferences = localStorage.getItem('taskflow-notification-preferences')
+    if (savedPreferences) {
+      setNotificationPreferences(JSON.parse(savedPreferences))
+    }
+  }, [])
+
+  // Save notification preferences to localStorage
+  useEffect(() => {
+    localStorage.setItem('taskflow-notification-preferences', JSON.stringify(notificationPreferences))
+  }, [notificationPreferences])
+
+  // Notification functions
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) {
+      toast.error('This browser does not support notifications')
+      return false
+    }
+
+    const permission = await Notification.requestPermission()
+    setNotificationPermission(permission)
+    
+    if (permission === 'granted') {
+      toast.success('Notifications enabled successfully!')
+      return true
+    } else {
+      toast.error('Notification permission denied')
+      return false
+    }
+  }
+
+  const createNotification = (title, body, taskId = null, type = 'info') => {
+    const notification = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      title,
+      body,
+      taskId,
+      type,
+      read: false,
+      createdAt: new Date().toISOString()
+    }
+
+    setNotifications(prev => [notification, ...prev])
+
+    // Show browser notification if enabled and permission granted
+    if (notificationPreferences.enableBrowser && notificationPermission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico'
+        })
+      } catch (error) {
+        console.error('Error showing browser notification:', error)
+      }
+    }
+
+    return notification
+  }
+
+  const markNotificationAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(notification => 
+        notification.id === notificationId 
+          ? { ...notification, read: true }
+          : notification
+      )
+    )
+  }
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications(prev => 
+      prev.map(notification => ({ ...notification, read: true }))
+    )
+  }
+
+  const deleteNotification = (notificationId) => {
+    setNotifications(prev => prev.filter(notification => notification.id !== notificationId))
+  }
+
+  const clearAllNotifications = () => {
+    setNotifications([])
+  }
+
+  const getUnreadNotificationCount = () => {
+    return notifications.filter(notification => !notification.read).length
+  }
+
+  // Check for notifications based on tasks
+  useEffect(() => {
+    const checkNotifications = () => {
+      const now = new Date()
+      const today = startOfDay(now)
+      const tomorrow = addDays(today, 1)
+      const nextWeek = addDays(today, 7)
+
+      tasks.forEach(task => {
+        if (!task.dueDate || task.status === 'completed') return
+
+        const taskDueDate = new Date(task.dueDate)
+        const isOverdue = isBefore(taskDueDate, today)
+        const isDueToday = isSameDay(taskDueDate, today)
+        const isDueTomorrow = isSameDay(taskDueDate, tomorrow)
+        const isDueNextWeek = isBefore(taskDueDate, nextWeek) && isAfter(taskDueDate, tomorrow)
+
+        // Check if we already sent a notification for this task and type
+        const existingNotification = notifications.find(notification => 
+          notification.taskId === task.id && 
+          notification.type === (isOverdue ? 'overdue' : isDueToday ? 'due-today' : 'upcoming')
+        )
+
+        if (existingNotification) return
+
+        // Overdue tasks
+        if (isOverdue && notificationPreferences.overdueTasks) {
+          createNotification(
+            'Overdue Task',
+            `"${task.title}" was due ${format(taskDueDate, 'MMM dd')}`,
+            task.id,
+            'overdue'
+          )
+        }
+        // Due today
+        else if (isDueToday && notificationPreferences.dueTodayTasks) {
+          createNotification(
+            'Task Due Today',
+            `"${task.title}" is due today`,
+            task.id,
+            'due-today'
+          )
+        }
+        // Upcoming deadlines
+        else if (notificationPreferences.upcomingDeadlines) {
+          if (notificationPreferences.reminderTiming === 'day' && isDueTomorrow) {
+            createNotification(
+              'Upcoming Deadline',
+              `"${task.title}" is due tomorrow`,
+              task.id,
+              'upcoming'
+            )
+          } else if (notificationPreferences.reminderTiming === 'week' && isDueNextWeek) {
+            createNotification(
+              'Upcoming Deadline',
+              `"${task.title}" is due ${format(taskDueDate, 'MMM dd')}`,
+              task.id,
+              'upcoming'
+            )
+          }
+        }
+      })
+    }
+
+    // Check notifications on mount and when tasks change
+    checkNotifications()
+
+    // Set up interval to check notifications every hour
+    const interval = setInterval(checkNotifications, 60 * 60 * 1000)
+    
+    return () => clearInterval(interval)
+  }, [tasks, notifications, notificationPreferences])
+
+  // Notification click handlers
+  const handleNotificationClick = (notification) => {
+    markNotificationAsRead(notification.id)
+    
+    if (notification.taskId) {
+      const task = tasks.find(t => t.id === notification.taskId)
+      if (task) {
+        handleEdit(task)
+      }
+    }
+  }
+
+  const handleNotificationAction = (notification, action) => {
+    const task = tasks.find(t => t.id === notification.taskId)
+    if (!task) return
+
+    switch (action) {
+      case 'complete':
+        handleStatusChange(task.id, 'completed')
+        deleteNotification(notification.id)
+        toast.success('Task marked as completed!')
+        break
+      case 'edit':
+        handleEdit(task)
+        markNotificationAsRead(notification.id)
+        break
+      case 'dismiss':
+        deleteNotification(notification.id)
+        break
+      default:
+        break
+    }
+  }
 
   const priorityColors = {
     low: 'text-green-600 bg-green-50 border-green-200',
@@ -161,6 +370,11 @@ function MainFeature() {
     
     if (newStatus === 'completed') {
       toast.success('Task completed! 🎉')
+      
+      // Create completion notification if enabled
+      if (notificationPreferences.taskCompletions) {
+        createNotification('Task Completed', `"${tasks.find(t => t.id === taskId)?.title}" has been completed!`, taskId, 'completion')
+      }
     }
   }
 
@@ -1130,61 +1344,237 @@ function MainFeature() {
     )
   }
 
-  return (
-    <div className="max-w-7xl mx-auto">
-      {/* Header Controls */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="card p-4 sm:p-6 lg:p-8 mb-6 sm:mb-8"
-      >
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 lg:items-center lg:justify-between">
-          {/* Search and Filters */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1">
-            <div className="relative flex-1 max-w-md">
-              <ApperIcon name="Search" className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-surface-500" />
-              <input
-                type="text"
-                placeholder="Search tasks..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10 text-sm sm:text-base"
-              />
-            </div>
+  // Notification Center Component
+  const NotificationCenter = () => {
+    const categorizedNotifications = {
+      overdue: notifications.filter(n => n.type === 'overdue'),
+      dueToday: notifications.filter(n => n.type === 'due-today'),
+      upcoming: notifications.filter(n => n.type === 'upcoming'),
+      completed: notifications.filter(n => n.type === 'completion')
+    }
 
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="input-field w-full sm:w-auto text-sm sm:text-base"
+    return (
+      <AnimatePresence>
+        {showNotificationCenter && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setShowNotificationCenter(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              className="notification-center"
             >
-              <option value="all">All Tasks</option>
-              <option value="todo">To Do</option>
-              <option value="in-progress">In Progress</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
+              <div className="notification-header">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-surface-900 dark:text-surface-100">
+                    Notifications
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={markAllNotificationsAsRead}
+                      className="text-xs text-primary hover:text-primary-dark transition-colors"
+                    >
+                      Mark all read
+                    </button>
+                    <button
+                      onClick={clearAllNotifications}
+                      className="text-xs text-surface-500 hover:text-surface-700 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-          {/* View Toggle and Add Task */}
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="flex items-center bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
-              <button
-                onClick={() => setViewMode('kanban')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  viewMode === 'kanban' 
-                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
-                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
-                }`}
-              >
-                <ApperIcon name="Columns" className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('calendar')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  viewMode === 'calendar' 
-                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
-                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
-                }`}
+              <div className="notification-list">
+                {notifications.length > 0 ? (
+                  <>
+                    {/* Overdue Tasks */}
+                    {categorizedNotifications.overdue.length > 0 && (
+                      <div className="notification-category">
+                        <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
+                          <h4 className="text-sm font-medium text-red-800 dark:text-red-200">
+                            Overdue ({categorizedNotifications.overdue.length})
+                          </h4>
+                        </div>
+                        {categorizedNotifications.overdue.map(notification => (
+                          <div
+                            key={notification.id}
+                            className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                            onClick={() => handleNotificationClick(notification)}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0">
+                                <ApperIcon name="AlertTriangle" className="w-5 h-5 text-red-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-surface-900 dark:text-surface-100 text-sm">
+                                  {notification.title}
+                                </p>
+                                <p className="text-sm text-surface-600 dark:text-surface-400 truncate">
+                                  {notification.body}
+                                </p>
+                                <p className="text-xs text-surface-500 dark:text-surface-500 mt-1">
+                                  {format(new Date(notification.createdAt), 'MMM dd, HH:mm')}
+                                </p>
+                                {notification.taskId && (
+                                  <div className="notification-actions">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleNotificationAction(notification, 'complete')
+                                      }}
+                                      className="notification-btn notification-btn-primary"
+                                    >
+                                      Complete
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleNotificationAction(notification, 'edit')
+                                      }}
+                                      className="notification-btn notification-btn-secondary"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleNotificationAction(notification, 'dismiss')
+                                      }}
+                                      className="notification-btn notification-btn-secondary"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {!notification.read && <div className="notification-dot" />}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Due Today */}
+                    {categorizedNotifications.dueToday.length > 0 && (
+                      <div className="notification-category">
+                        <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800">
+                          <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                            Due Today ({categorizedNotifications.dueToday.length})
+                          </h4>
+                        </div>
+                        {categorizedNotifications.dueToday.map(notification => (
+                          <div
+                            key={notification.id}
+                            className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                            onClick={() => handleNotificationClick(notification)}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0">
+                                <ApperIcon name="Clock" className="w-5 h-5 text-yellow-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-surface-900 dark:text-surface-100 text-sm">
+                                  {notification.title}
+                                </p>
+                                <p className="text-sm text-surface-600 dark:text-surface-400 truncate">
+                                  {notification.body}
+                                </p>
+                                <p className="text-xs text-surface-500 dark:text-surface-500 mt-1">
+                                  {format(new Date(notification.createdAt), 'MMM dd, HH:mm')}
+                                </p>
+                                {notification.taskId && (
+                                  <div className="notification-actions">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleNotificationAction(notification, 'complete')
+                                      }}
+                                      className="notification-btn notification-btn-primary"
+                                    >
+                                      Complete
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleNotificationAction(notification, 'edit')
+                                      }}
+                                      className="notification-btn notification-btn-secondary"
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {!notification.read && <div className="notification-dot" />}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Other notifications */}
+                    {[...categorizedNotifications.upcoming, ...categorizedNotifications.completed].map(notification => (
+                      <div
+                        key={notification.id}
+                        className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0">
+                            <ApperIcon 
+                              name={notification.type === 'completion' ? 'CheckCircle' : 'Calendar'} 
+                              className={`w-5 h-5 ${notification.type === 'completion' ? 'text-green-500' : 'text-blue-500'}`} 
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-surface-900 dark:text-surface-100 text-sm">
+                              {notification.title}
+                            </p>
+                            <p className="text-sm text-surface-600 dark:text-surface-400 truncate">
+                              {notification.body}
+                            </p>
+                            <p className="text-xs text-surface-500 dark:text-surface-500 mt-1">
+                              {format(new Date(notification.createdAt), 'MMM dd, HH:mm')}
+                            </p>
+                            {notification.taskId && notification.type !== 'completion' && (
+                              <div className="notification-actions">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleNotificationAction(notification, 'edit')
+                                  }}
+                                  className="notification-btn notification-btn-secondary"
+                                >
+                                  View Task
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {!notification.read && <div className="notification-dot" />}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="notification-empty">
+                    <ApperIcon name="Bell" className="w-8 h-8 mx-auto mb-2 text-surface-300" />
+                    <p className="font-medium">No notifications</p>
+                    <p className="text-sm">You're all caught up!</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    )
+  }
+
   // Notification Preferences Modal
   const NotificationPreferencesModal = () => {
     const handlePreferenceChange = (key, value) => {
@@ -1354,6 +1744,87 @@ function MainFeature() {
     )
   }
 
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* Header Controls */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="card p-4 sm:p-6 lg:p-8 mb-6 sm:mb-8"
+      >
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 lg:items-center lg:justify-between">
+          {/* Search and Filters */}
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1">
+            <div className="relative flex-1 max-w-md">
+              <ApperIcon name="Search" className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-surface-500" />
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="input-field pl-10 text-sm sm:text-base"
+              />
+            </div>
+
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="input-field w-full sm:w-auto text-sm sm:text-base"
+            >
+              <option value="all">All Tasks</option>
+              <option value="todo">To Do</option>
+              <option value="in-progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+
+          {/* View Toggle and Add Task */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Notification Center Toggle */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotificationCenter(!showNotificationCenter)}
+                className="relative p-3 rounded-xl bg-white dark:bg-surface-800 shadow-card hover:shadow-soft transition-all duration-200 border border-surface-200 dark:border-surface-700"
+                title="Notifications"
+              >
+                <ApperIcon name="Bell" className="w-5 h-5 text-surface-700 dark:text-surface-300" />
+                {getUnreadNotificationCount() > 0 && (
+                  <div className="notification-badge">
+                    {getUnreadNotificationCount() > 9 ? '9+' : getUnreadNotificationCount()}
+                  </div>
+                )}
+              </button>
+              <NotificationCenter />
+            </div>
+
+            {/* Notification Preferences Button */}
+            <button
+              onClick={() => setShowNotificationPreferences(true)}
+              className="p-3 rounded-xl bg-white dark:bg-surface-800 shadow-card hover:shadow-soft transition-all duration-200 border border-surface-200 dark:border-surface-700"
+              title="Notification Preferences"
+            >
+              <ApperIcon name="Settings" className="w-5 h-5 text-surface-700 dark:text-surface-300" />
+            </button>
+
+            <div className="flex items-center bg-surface-100 dark:bg-surface-800 rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'kanban' 
+                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
+                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+                }`}
+              >
+                <ApperIcon name="Columns" className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  viewMode === 'calendar' 
+                    ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
+                    : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
+
               >
                 <ApperIcon name="Calendar" className="w-4 h-4" />
               </button>
@@ -1436,15 +1907,6 @@ function MainFeature() {
                     <p className="text-xs sm:text-sm text-surface-600 dark:text-surface-400">
                       {statusTasks.length} tasks
                     </p>
-            
-            {/* Notification Preferences Button */}
-            <button
-              onClick={() => setShowNotificationPreferences(true)}
-              className="p-3 rounded-xl bg-white dark:bg-surface-800 shadow-card hover:shadow-soft transition-all duration-200 border border-surface-200 dark:border-surface-700"
-              title="Notification Preferences"
-            >
-              <ApperIcon name="Settings" className="w-5 h-5 text-surface-700 dark:text-surface-300" />
-            </button>
                   </div>
                 </div>
 
@@ -1895,11 +2357,11 @@ function MainFeature() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Notification Preferences Modal */}
+      <NotificationPreferencesModal />
     </div>
   )
 }
 
 export default MainFeature
-      
-      {/* Notification Preferences Modal */}
-      <NotificationPreferencesModal />
