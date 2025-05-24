@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useSelector } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
+import { taskService } from '../services/taskService'
 import { toast } from 'react-toastify'
 import { useDropzone } from 'react-dropzone'
 import { saveAs } from 'file-saver'
@@ -39,6 +42,8 @@ ChartJS.register(
 )
 
 function MainFeature() {
+  const { user, isAuthenticated } = useSelector((state) => state.user)
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -48,6 +53,11 @@ function MainFeature() {
   const [editingTask, setEditingTask] = useState(null)
   const [selectedDate, setSelectedDate] = useState(null)
   const [draggedTask, setDraggedTask] = useState(null)
+  
+  // Loading states
+  const [loading, setLoading] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Notification state
   const [notifications, setNotifications] = useState([])
@@ -78,19 +88,52 @@ function MainFeature() {
     comments: []
   })
 
-  // Load tasks from localStorage on mount
+  // Check authentication status
   useEffect(() => {
-    const savedTasks = localStorage.getItem('taskflow-tasks')
-    if (savedTasks) {
-      setTasks(JSON.parse(savedTasks))
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
     }
-  }, [])
+  }, [isAuthenticated, navigate])
 
-  // Save tasks to localStorage whenever tasks change
+  // Load tasks from database on mount
   useEffect(() => {
-    localStorage.setItem('taskflow-tasks', JSON.stringify(tasks))
-  }, [tasks])
+    if (isAuthenticated && user) {
+      loadTasks()
+    }
+  }, [isAuthenticated, user])
 
+  // Load tasks from database
+  const loadTasks = async () => {
+    try {
+      setLoading(true)
+      const fetchedTasks = await taskService.fetchTasks()
+      
+      // Transform database fields to match component expectations
+      const transformedTasks = fetchedTasks.map(task => ({
+        id: task.Id,
+        title: task.title || task.Name,
+        description: task.description || '',
+        priority: task.priority || 'medium',
+        status: task.status || 'todo',
+        dueDate: task.dueDate || '',
+        createdAt: task.createdAt || task.CreatedOn,
+        updatedAt: task.updatedAt || task.ModifiedOn,
+        attachments: [], // Will be loaded separately
+        comments: [] // Will be loaded separately
+      }))
+      
+      setTasks(transformedTasks)
+    } catch (error) {
+      console.error('Error loading tasks:', error)
+      toast.error('Failed to load tasks')
+      setTasks([]) // Set empty array on error
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Load notification preferences from localStorage (fallback for now)
   // Load notification preferences from localStorage
   useEffect(() => {
     const savedPreferences = localStorage.getItem('taskflow-notification-preferences')
@@ -300,7 +343,7 @@ function MainFeature() {
     completed: { title: 'Completed', color: 'border-green-300', icon: 'CheckCircle' }
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     
     if (!formData.title.trim()) {
@@ -308,27 +351,58 @@ function MainFeature() {
       return
     }
 
-    const taskData = {
-      ...formData,
-      id: editingTask ? editingTask.id : Date.now().toString(),
-      createdAt: editingTask ? editingTask.createdAt : new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      attachments: editingTask ? editingTask.attachments || [] : [],
-      comments: editingTask ? editingTask.comments || [] : []
-    }
+    try {
+      setCreating(true)
+      
+      // Prepare data for database
+      const taskData = {
+        Name: formData.title,
+        title: formData.title,
+        description: formData.description,
+        priority: formData.priority,
+        status: formData.status,
+        dueDate: formData.dueDate || null,
+        createdAt: editingTask ? editingTask.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        Owner: user?.userId || user?.id
+      }
 
-    if (editingTask) {
-      setTasks(prev => prev.map(task => task.id === editingTask.id ? taskData : task))
-      toast.success('Task updated successfully!')
-    } else {
-      setTasks(prev => [...prev, taskData])
-      toast.success('Task created successfully!')
-    }
+      let result
+      if (editingTask) {
+        result = await taskService.updateTask(editingTask.id, taskData)
+        toast.success('Task updated successfully!')
+      } else {
+        result = await taskService.createTask(taskData)
+        toast.success('Task created successfully!')
+      }
 
-    resetForm()
+      // Reload tasks from database to get updated data
+      await loadTasks()
+      resetForm()
+    } catch (error) {
+      console.error('Error saving task:', error)
+      toast.error(`Failed to ${editingTask ? 'update' : 'create'} task`)
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const resetForm = () => {
+  const handleEdit = async (task) => {
+    try {
+      setLoading(true)
+      // Load full task details from database
+      const fullTask = await taskService.getTaskById(task.id)
+      if (!fullTask) {
+        toast.error('Task not found')
+        return
+      }
+      task = { ...task, ...fullTask }
+    } catch (error) {
+      console.error('Error loading task details:', error)
+    } finally {
+      setLoading(false)
+    }
+    
     setFormData({
       title: '',
       description: '',
@@ -344,25 +418,50 @@ function MainFeature() {
 
   const handleEdit = (task) => {
     setFormData({
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
+  const handleDelete = async (taskId) => {
+    if (!window.confirm('Are you sure you want to delete this task?')) {
+      return
+    }
+
+    try {
+      setDeleting(true)
+      await taskService.deleteTask(taskId)
+      toast.success('Task deleted successfully!')
+      
+      // Reload tasks from database
+      await loadTasks()
+    } catch (error) {
+      console.error('Error deleting task:', error)
+      toast.error('Failed to delete task')
+    } finally {
+      setDeleting(false)
+    }
       dueDate: task.dueDate,
       status: task.status,
-      attachments: task.attachments || [],
-      comments: task.comments || []
-    })
-    setEditingTask(task)
-    setIsFormOpen(true)
-  }
+  const handleStatusChange = async (taskId, newStatus) => {
+    try {
+      const task = tasks.find(t => t.id === taskId)
+      if (!task) return
 
-  const handleDelete = (taskId) => {
-    setTasks(prev => prev.filter(task => task.id !== taskId))
-    toast.success('Task deleted successfully!')
-  }
-
-  const handleStatusChange = (taskId, newStatus) => {
+      await taskService.updateTask(taskId, {
+        status: newStatus,
+        updatedAt: new Date().toISOString()
+      })
+      
+      // Reload tasks to get updated data
+      await loadTasks()
+      
+      if (newStatus === 'completed') {
+        toast.success('Task completed! 🎉')
+        
+        // Create completion notification if enabled
+        if (notificationPreferences.taskCompletions) {
+          createNotification('Task Completed', `"${task.title}" has been completed!`, taskId, 'completion')
+        }
     setTasks(prev => prev.map(task => 
+    } catch (error) {
+      console.error('Error updating task status:', error)
+      toast.error('Failed to update task status')
       task.id === taskId 
         ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
         : task
@@ -1747,6 +1846,14 @@ function MainFeature() {
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header Controls */}
+    <div className="max-w-7xl mx-auto">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+      
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -2071,10 +2178,20 @@ function MainFeature() {
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4">
                     <button
                       type="submit"
-                      className="btn-primary flex-1 flex items-center justify-center gap-2"
+                      className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={creating}
                     >
-                      <ApperIcon name={editingTask ? "Save" : "Plus"} className="w-4 h-4" />
-                      {editingTask ? 'Update Task' : 'Create Task'}
+                      {creating ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          {editingTask ? 'Updating...' : 'Creating...'}
+                        </>
+                      ) : (
+                        <>
+                          <ApperIcon name={editingTask ? "Save" : "Plus"} className="w-4 h-4" />
+                          {editingTask ? 'Update Task' : 'Create Task'}
+                        </>
+                      )}
                     </button>
                     <button
                       type="button"
@@ -2360,6 +2477,7 @@ function MainFeature() {
 
       {/* Notification Preferences Modal */}
       <NotificationPreferencesModal />
+    </div>
     </div>
   )
 }

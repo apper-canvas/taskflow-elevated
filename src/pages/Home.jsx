@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useSelector, useContext } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
 import MainFeature from '../components/MainFeature'
 import ApperIcon from '../components/ApperIcon'
+import { AuthContext } from '../App'
 
 function Home() {
+  const { isAuthenticated } = useSelector((state) => state.user)
+  const { logout } = useContext(AuthContext)
   const [darkMode, setDarkMode] = useState(false)
 
   useEffect(() => {
@@ -50,6 +55,17 @@ function Home() {
 
             {/* Controls */}
             <div className="flex items-center gap-3 sm:gap-4">
+              {isAuthenticated && (
+                <motion.button
+                  onClick={logout}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="p-3 rounded-xl bg-white dark:bg-surface-800 shadow-card hover:shadow-soft transition-all duration-200 border border-surface-200 dark:border-surface-700"
+                >
+                  <ApperIcon name="LogOut" className="w-5 h-5 text-surface-700 dark:text-surface-300" />
+                </motion.button>
+              )}
+              
               <motion.button
                 onClick={toggleDarkMode}
                 whileHover={{ scale: 1.05 }}
