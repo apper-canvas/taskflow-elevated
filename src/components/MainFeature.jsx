@@ -1825,7 +1825,6 @@ function MainFeature() {
                     ? 'bg-white dark:bg-surface-700 text-primary shadow-sm' 
                     : 'text-surface-600 dark:text-surface-400 hover:text-surface-900 dark:hover:text-surface-100'
 
-              >
                 <ApperIcon name="Calendar" className="w-4 h-4" />
               </button>
               <button
