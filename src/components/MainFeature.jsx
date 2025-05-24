@@ -897,13 +897,15 @@ function MainFeature() {
 
     return (
       <motion.div
-        className={`min-h-24 sm:min-h-32 p-1 sm:p-2 border border-surface-200 dark:border-surface-700 transition-colors ${
+        className={`min-h-24 sm:min-h-32 p-1 sm:p-2 border border-surface-200 dark:border-surface-700 transition-all duration-200 ${
           isCurrentMonth 
-            ? 'bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700' 
+            ? draggedTask 
+              ? 'bg-white dark:bg-surface-800 hover:bg-primary/10 dark:hover:bg-primary/20 hover:border-primary/30 cursor-pointer' 
+              : 'bg-white dark:bg-surface-800 hover:bg-surface-50 dark:hover:bg-surface-700' 
             : 'bg-surface-50 dark:bg-surface-900'
         } ${isTodayDate ? 'ring-2 ring-primary bg-primary/5' : ''} ${
           isSelected ? 'ring-2 ring-secondary bg-secondary/10' : ''
-        }`}
+        } ${draggedTask ? 'hover:shadow-lg hover:scale-[1.02]' : ''}`}
         onDragOver={handleDragOver}
         onDrop={(e) => handleCalendarDrop(e, date)}
         onClick={() => tasks.length > 0 && setSelectedDate(date)}
