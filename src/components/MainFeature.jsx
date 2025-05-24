@@ -6,7 +6,7 @@ import { saveAs } from 'file-saver'
 import { 
   format, isToday, isTomorrow, isPast, startOfMonth, endOfMonth, startOfWeek, endOfWeek, 
   eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, subDays, parseISO,
-  differenceInDays, startOfDay, endOfDay, isAfter, isBefore, startOfWeek as startOfWeekFn,
+  differenceInDays, startOfDay, endOfDay, isAfter, isBefore, addDays, startOfWeek as startOfWeekFn,
   endOfWeek as endOfWeekFn
 } from 'date-fns'
 import {
