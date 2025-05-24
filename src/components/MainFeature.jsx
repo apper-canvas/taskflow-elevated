@@ -416,8 +416,20 @@ function MainFeature() {
     setEditingTask(null)
   }
 
-  const handleEdit = (task) => {
+  const resetForm = () => {
     setFormData({
+      title: '',
+      description: '',
+      priority: 'medium',
+      dueDate: '',
+      status: 'todo',
+      attachments: [],
+      comments: []
+    })
+    setIsFormOpen(false)
+    setEditingTask(null)
+  }
+
   const handleDelete = async (taskId) => {
     if (!window.confirm('Are you sure you want to delete this task?')) {
       return
@@ -436,8 +448,8 @@ function MainFeature() {
     } finally {
       setDeleting(false)
     }
-      dueDate: task.dueDate,
-      status: task.status,
+  }
+
   const handleStatusChange = async (taskId, newStatus) => {
     try {
       const task = tasks.find(t => t.id === taskId)
@@ -458,22 +470,10 @@ function MainFeature() {
         if (notificationPreferences.taskCompletions) {
           createNotification('Task Completed', `"${task.title}" has been completed!`, taskId, 'completion')
         }
-    setTasks(prev => prev.map(task => 
+      }
     } catch (error) {
       console.error('Error updating task status:', error)
       toast.error('Failed to update task status')
-      task.id === taskId 
-        ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
-        : task
-    ))
-    
-    if (newStatus === 'completed') {
-      toast.success('Task completed! 🎉')
-      
-      // Create completion notification if enabled
-      if (notificationPreferences.taskCompletions) {
-        createNotification('Task Completed', `"${tasks.find(t => t.id === taskId)?.title}" has been completed!`, taskId, 'completion')
-      }
     }
   }
 
